@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.Json.Serialization;
 using System.Text.Json;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 public sealed class ServerState
 {
@@ -220,13 +221,13 @@ public sealed class ServerState
                 .ToList();
         }
 
-        return SetupGameStateFromJson(players);
+        return SetupGameStateFromJson(players, team);
     }
 
  
 
 
-    public GameStateData SetupGameStateFromJson(List<PlayerData> players)
+    public GameStateData SetupGameStateFromJson(List<PlayerData> players, SalonInfo team)
     {
 
 
@@ -235,13 +236,13 @@ public sealed class ServerState
         List<CardData> cards = GetCardsFromJson();
 
         // wrap in game state
-        return new GameStateData
+        var gameState =  new GameStateData
         {
             GameRules = rules,
             Board = cards,
             Active = false,
             Completed = false,
-            CurrentPosition = -1,
+            CurrentPosition = 1,
             Players = players,
             CurrentPlayerId = players.FirstOrDefault()?.userInfo?.Id ?? 0,
             SharedMessage = "",
@@ -250,6 +251,9 @@ public sealed class ServerState
             Notifications = new List<NotificationTwily>(),
             Step = StepGameType.NOTSTARTED
         };
+
+        team.GameState = gameState;
+        return gameState;
     }
 
     private static readonly JsonSerializerOptions Options = new JsonSerializerOptions
@@ -339,10 +343,10 @@ public sealed class ServerState
         return _initLeaderByTeam.TryGetValue(Key(salonId, teamId), out userId);
     }
 
-    public bool ApplyInitializedGame(string salonId, string teamId, GameStateData game)
+    public GameStateData ApplyInitializedGame(string salonId, string teamId, GameStateData game)
     {
         if (!TryGetTeam(salonId, teamId, out var big, out var team))
-            return false;
+            return game;
 
         var key = Key(salonId, teamId);
 
@@ -352,7 +356,7 @@ public sealed class ServerState
             readyIds = set.Keys.ToList();
 
         // Build Players list from the ready users present in this team
-        List<PlayerData> players;
+        
         lock (big)
         {
             var teamUsers = team.UsersInSalon ?? new List<UserInfo>();
@@ -368,18 +372,11 @@ public sealed class ServerState
             if (selectedUsers.Count == 0)
                 selectedUsers = teamUsers.OrderBy(u => u.Id).Take(4).ToList();
 
-            players = selectedUsers.Select(u => new PlayerData
-            {
-                userInfo = u,
-                score = 0,
-                roleGame = RoleGameType.NOROLE,
-                cardsProfile = new List<CardData>()
-            }).ToList();
         }
 
         // Ensure we have a game object and non-null collections
         var gs = game ?? new GameStateData();
-        gs.Players = players;
+
 
         gs.Notifications ??= new List<NotificationTwily>();
     
@@ -390,9 +387,7 @@ public sealed class ServerState
         gs.TimeLastTurn = gs.StartGame;
         gs.Step = StepGameType.CHOSEROLE;
 
-        // Pick a deterministic initial current player if not set
-        if (gs.CurrentPlayerId == 0 && players.Count > 0)
-            gs.CurrentPlayerId = players.First().userInfo.Id;
+
 
         // Apply to team
         lock (big)
@@ -403,7 +398,7 @@ public sealed class ServerState
         // Clear readiness for this team now that the game is active
         _teamReady.TryRemove(key, out _);
 
-        return true;
+        return game;
     }
 
 
@@ -508,6 +503,478 @@ public sealed class ServerState
             return true;
         }
     }
+
+
+
+    #endregion
+
+    #region cardManagement
+    public bool TryUnlockCard(string salonId, string teamId, int cardId, out string error)
+    {
+        error = null;
+
+        if (!TryGetTeam(salonId, teamId, out var big, out var team))
+        {
+            error = "not-found";
+            return false;
+        }
+
+        lock (big)
+        {
+            var game = team.GameState;
+            if (game == null)
+            {
+                error = "no-game";
+                return false;
+            }
+
+            var board = game.Board;
+            if (board == null || board.Count == 0)
+            {
+                error = "no-board";
+                return false;
+            }
+
+            var card = board.FirstOrDefault(c => c.Id == cardId);
+            if (card == null)
+            {
+                error = "card-not-found";
+                return false;
+            }
+            game.CurrentPosition = card.Id;
+
+            foreach(var area in game.AreaStates)
+            {
+                foreach(var bc in area.casesOnBoard)
+                {
+                    if(bc.idCardOn == cardId)
+                    {
+                        bc.isVisited = true;
+                    }
+                }
+            }
+
+                if(game.Step == StepGameType.SELECTTEAM) 
+                {
+                    game.Step = StepGameType.NEXTPARTCARD;
+                }
+                else if (game.Step == StepGameType.NEXTPARTCARD)
+                {
+                    //second selection
+                }
+                else
+                {
+                    game.Step = StepGameType.PLAYCARD;
+                }
+ 
+            // idempotent: always set to true
+            card.Unlocked = true;
+            return true;
+        }
+    }
+
+    public GameStateData GetGameState(string salonId, string teamId)
+    {
+        if (!TryGetTeam(salonId, teamId, out var big, out var team))
+        {
+           
+            return null;
+        }
+        lock (big)
+        {
+            var game = team.GameState;
+            if (game == null)
+            {
+
+                return null;
+            }
+            return game;
+        }
+     
+    }
+    public bool TryValidateCardAdmin(
+    string salonId,
+    string teamId,
+    int cardId,
+    EvaluationResult newState,
+    out GameStateData game,
+    out string error)
+    {
+        game = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(salonId) || string.IsNullOrWhiteSpace(teamId))
+        {
+            error = "invalid-ids";
+            return false;
+        }
+        if (cardId <= 0)
+        {
+            error = "invalid-card-id";
+            return false;
+        }
+
+        if (!TryGetTeam(salonId, teamId, out var big, out var team))
+        {
+            error = "not-found";
+            return false;
+        }
+
+        lock (big)
+        {
+            game = team.GameState;
+            if (game == null)
+            {
+                error = "no-game";
+                return false;
+            }
+            if (game.Board == null || game.Board.Count == 0)
+            {
+                error = "no-board";
+                return false;
+            }
+
+            var card = game.Board.FirstOrDefault(c => c != null && c.Id == cardId);
+            if (card == null)
+            {
+                error = "card-not-found";
+                return false;
+            }
+
+            // Apply admin validation
+            card.ProEvaluationResult = newState;
+
+            // Optional misc bookkeeping
+            game.TimeLastTurn = DateTime.UtcNow;
+
+            return true;
+        }
+    }
+
+    public bool TryApplyAnswerAndAdvanceTurn(
+        string salonId,
+        string teamId,
+        CardData answeredCard,
+        int playerId,
+        out GameStateData game,
+        out string error)
+    {
+        game = null;
+        error = null;
+
+        if (answeredCard == null) { error = "missing-card"; return false; }
+        if (!TryGetTeam(salonId, teamId, out var big, out var team)) { error = "not-found"; return false; }
+
+        lock (big)
+        {
+            game = team.GameState;
+            if (game == null) { error = "no-game"; return false; }
+            if (game.Board == null || game.Board.Count == 0) { error = "no-board"; return false; }
+
+            var boardCard = game.Board.FirstOrDefault(c => c.Id == answeredCard.Id);
+            if (boardCard == null) { error = "card-not-found"; return false; }
+
+            // update response
+            boardCard.Response = answeredCard.Response;
+
+            // points
+            var points = boardCard.Points;
+            if (points != 0 && playerId != 0)
+            {
+                game.Players ??= new List<PlayerData>();
+                var player = game.Players.FirstOrDefault(p => p?.userInfo?.Id == playerId);
+                if (player != null) player.score += points;
+                game.TotalScore += points;
+            }
+
+            // advance turn WITHOUT capturing 'game' in a lambda
+            var players = game.Players ?? new List<PlayerData>();
+            int currentId = game.CurrentPlayerId;
+
+            int idx = players.FindIndex(p => p?.userInfo?.Id == currentId);
+            if (idx < 0) idx = 0;
+
+            int nextIdx = players.Count > 0 ? (idx + 1) % players.Count : 0;
+            int nextId = (players.Count > 0) ? (players[nextIdx]?.userInfo?.Id ?? 0) : 0;
+            if (nextId != 0) game.CurrentPlayerId = nextId;
+
+            game.TimeLastTurn = DateTime.UtcNow;
+
+            var currentArea = game.CurrentArea; // keep previous as fallback
+            foreach (var area in game.AreaStates)
+            {
+                if (area.casesOnBoard?.Any(bc => bc.isVisited) == true)
+                {
+                    currentArea = area.idArea;
+                    break; // only one area can be active/visited, so stop here
+                }
+            }
+            game.CurrentArea = currentArea;
+
+
+
+
+            return true;
+        }
+    }
+
+    internal bool TryApplyProfileToPlayer(
+        string idSalon,
+        string idTeam,
+        UserInfo userInfo,
+        List<CardData> cardsChosen,
+        out GameStateData game,
+        out string error)
+    {
+        game = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(idSalon) || string.IsNullOrWhiteSpace(idTeam))
+        {
+            error = "invalid-ids";
+            return false;
+        }
+        if (userInfo == null || userInfo.Id == 0)
+        {
+            error = "missing-user";
+            return false;
+        }
+
+        if (!TryGetTeam(idSalon, idTeam, out var big, out var team))
+        {
+            error = "not-found";
+            return false;
+        }
+
+        lock (big)
+        {
+            game = team.GameState;
+            if (game == null)
+            {
+                error = "no-game";
+                return false;
+            }
+
+            game.Players ??= new List<PlayerData>();
+            game.Board ??= new List<CardData>();
+
+            // Ensure player exists
+            var player = game.Players.FirstOrDefault(p => p?.userInfo?.Id == userInfo.Id);
+            if (player == null)
+            {
+               return false;
+            }
+
+            player.cardsProfile = cardsChosen;
+
+            bool everyoneHasProfile = game.Players != null &&
+                                game.Players.Count > 0 &&
+                                game.Players.All(p => p.cardsProfile != null && p.cardsProfile.Count > 0);
+
+            if (everyoneHasProfile)
+            {
+                // Advance the step of the game
+                game.Step = StepGameType.SELECTTEAM; // or whatever step enum you want to use
+            }
+
+
+            return true;
+        }
+    }
+
+
+
+
+    #endregion
+
+    #region notification
+    public bool TryAddNotificationToBigSalon(
+    string salonId,
+    NotificationTwily notif,
+    out BigSalonInfo bigOut,
+    out string error)
+    {
+        bigOut = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(salonId) || notif == null)
+        {
+            error = "invalid-payload";
+            return false;
+        }
+
+        if (!TryGetBigSalon(salonId, out var big))
+        {
+            error = "not-found";
+            return false;
+        }
+
+        // Normalize
+        notif.idNotification = string.IsNullOrWhiteSpace(notif.idNotification)
+            ? Guid.NewGuid().ToString("N")
+            : notif.idNotification;
+        notif.notificationTime = (notif.notificationTime == default)
+            ? DateTime.UtcNow
+            : notif.notificationTime;
+        notif.idSalonNotif = string.IsNullOrWhiteSpace(notif.idSalonNotif)
+            ? salonId
+            : notif.idSalonNotif;
+
+        lock (big)
+        {
+            big.Notifications ??= new List<NotificationTwily>();
+            if (!big.Notifications.Any(n => n.idNotification == notif.idNotification))
+                big.Notifications.Add(notif);
+
+            bigOut = big; // see below
+            return true;
+        }
+    }
+
+    public bool TryRemoveNotificationFromBigSalon(
+        string salonId,
+        string notifId,
+        out BigSalonInfo bigOut,
+        out string error)
+    {
+        bigOut = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(salonId) || string.IsNullOrWhiteSpace(notifId))
+        {
+            error = "invalid-payload";
+            return false;
+        }
+
+        if (!TryGetBigSalon(salonId, out var big))
+        {
+            error = "not-found";
+            return false;
+        }
+
+        lock (big)
+        {
+            var list = big.Notifications ??= new List<NotificationTwily>();
+            int removed = list.RemoveAll(n => n.idNotification == notifId);
+            if (removed == 0)
+            {
+                error = "notif-not-found";
+                return false;
+            }
+
+            bigOut =big; // see below
+            return true;
+        }
+    }
+    public HashSet<int> GetBigSalonAdminObserverUserIds(string salonId)
+    {
+        var result = new HashSet<int>();
+        if (!TryGetBigSalon(salonId, out var big)) return result;
+
+        lock (big)
+        {
+            var wanted = new HashSet<string>(new[] { "administrator", "observer" }
+                .Select(r => r.ToLowerInvariant()));
+
+            foreach (var u in big.UserInBig ?? new List<UserInfo>())
+            {
+                var roles = u.Roles ?? new string[0];
+                bool ok = roles.Any(r => !string.IsNullOrWhiteSpace(r) && wanted.Contains(r.ToLowerInvariant()));
+                if (ok && u.Id != 0) result.Add(u.Id);
+            }
+        }
+        return result;
+    }
+
+
+    public bool TryApplyBudgetToGame(
+    string salonId,
+    string teamId,
+    SpecialCardBudgetResponse budget,
+    out GameStateData game,
+    out string error)
+    {
+        game = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(salonId) || string.IsNullOrWhiteSpace(teamId))
+        {
+            error = "invalid-ids";
+            return false;
+        }
+        if (!TryGetTeam(salonId, teamId, out var big, out var team))
+        {
+            error = "not-found";
+            return false;
+        }
+
+        lock (big)
+        {
+            game = team.GameState;
+            if (game == null)
+            {
+                error = "no-game";
+                return false;
+            }
+
+            // normalize: never store null
+            budget ??= new SpecialCardBudgetResponse { SpecialCardBudgetDatas = new List<SpecialCardBudgetData>() };
+            budget.SpecialCardBudgetDatas ??= new List<SpecialCardBudgetData>();
+
+            // assign to game
+            game.SpecialCardBudgetResponse = budget;
+
+            // optional bookkeeping
+            game.TimeLastTurn = DateTime.UtcNow;
+            return true;
+        }
+    }
+
+    public bool TryApplyCrisisToGame(
+        string salonId,
+        string teamId,
+        SpecialCardCrisisResponse crisis,
+        out GameStateData game,
+        out string error)
+    {
+        game = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(salonId) || string.IsNullOrWhiteSpace(teamId))
+        {
+            error = "invalid-ids";
+            return false;
+        }
+        if (!TryGetTeam(salonId, teamId, out var big, out var team))
+        {
+            error = "not-found";
+            return false;
+        }
+
+        lock (big)
+        {
+            game = team.GameState;
+            if (game == null)
+            {
+                error = "no-game";
+                return false;
+            }
+
+            crisis ??= new SpecialCardCrisisResponse();
+            // if you want to trim whitespace:
+            crisis.FirstCause = crisis.FirstCause?.Trim();
+            crisis.SecondCause = crisis.SecondCause?.Trim();
+            crisis.ThirdCause = crisis.ThirdCause?.Trim();
+            crisis.FourthCause = crisis.FourthCause?.Trim();
+            crisis.FifthCause = crisis.FifthCause?.Trim();
+
+            game.SpecialCardCrisisResponse = crisis;
+
+            game.TimeLastTurn = DateTime.UtcNow;
+            return true;
+        }
+    }
+
 
     #endregion
 }

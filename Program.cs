@@ -357,18 +357,8 @@ app.Map("/ws", async ctx =>
                             env.Data.TeamId
                         );
 
-                        var ok = serverState.ApplyInitializedGame(env.Data.SalonId, env.Data.TeamId, env.Data.Game);
-                        if (!ok)
-                        {
-                            logger.LogWarning("gameBoardInitialized -> Apply failed for Salon={SalonId}, Team={TeamId}",
-                                env.Data.SalonId,
-                                env.Data.TeamId
-                            );
-
-                            await SendJsonAsync(socket, new Envelope<string>("error", "apply-failed"), jsonOptions);
-                            break;
-                        }
-
+                        var gameInit = serverState.ApplyInitializedGame(env.Data.SalonId, env.Data.TeamId, env.Data.Game);
+   
                         var teamUserIds = serverState.GetTeamUserIds(env.Data.SalonId, env.Data.TeamId);
 
                         logger.LogInformation(
@@ -377,10 +367,17 @@ app.Map("/ws", async ctx =>
                             string.Join(",", teamUserIds)
                         );
 
+                        var datatosend = new GameBoardInitializedPayload
+                        {
+                            Game = gameInit,
+                            SalonId = env.Data.SalonId,
+                            TeamId = env.Data.SalonId
+                        };
+
                         await SendToUserIdsAsync(
                             connections,
                             teamUserIds,
-                            new Envelope<GameBoardInitializedPayload>("gameInitialized", env.Data),
+                            new Envelope<GameBoardInitializedPayload>("gameInitialized", datatosend),
                             jsonOptions
                         );
 
@@ -453,6 +450,296 @@ app.Map("/ws", async ctx =>
                             connections,
                             teamUserIds,
                             new Envelope<GameStateData>("profileChosen", game),
+                            jsonOptions
+                        );
+                        break;
+                    }
+                case "choseCard":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<ChoseCardRequest>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var ok = serverState.TryUnlockCard(env.Data.IdSalon, env.Data.IdTeam, env.Data.IdCard, out var error);
+                        if (!ok)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", error ?? "unknown"), jsonOptions);
+                            break;
+                        }
+
+                        var resp = new ChoseCardResponse
+                        {
+                            IdSalon = env.Data.IdSalon,
+                            IdTeam = env.Data.IdTeam,
+                            IdCard = env.Data.IdCard,
+                            Game = serverState.GetGameState(env.Data.IdSalon, env.Data.IdTeam)
+                        };
+
+                        var teamUserIds = serverState.GetTeamUserIds(env.Data.IdSalon, env.Data.IdTeam);
+
+                        await SendToUserIdsAsync(
+                            connections,
+                            teamUserIds,
+                            new Envelope<ChoseCardResponse>("cardChosen", resp),
+                            jsonOptions
+                        );
+
+                        break;
+                    }
+                case "answerCard":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<AnswerCardRequest>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var ok = serverState.TryApplyAnswerAndAdvanceTurn(
+                            env.Data.IdSalon,
+                            env.Data.IdTeam,
+                            env.Data.CardAnsewerd,
+                            env.Data.IdPlayerAnswered,
+                            out var game,
+                            out var error
+                        );
+
+                        if (!ok)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", error ?? "unknown"), jsonOptions);
+                            break;
+                        }
+
+                        var resp = new AnswerCardResponse
+                        {
+                            IdSalon = env.Data.IdSalon,
+                            IdTeam = env.Data.IdTeam,
+                            Game = game
+                        };
+
+                        var teamUserIds = serverState.GetTeamUserIds(env.Data.IdSalon, env.Data.IdTeam);
+
+                        await SendToUserIdsAsync(
+                            connections,
+                            teamUserIds,
+                            new Envelope<AnswerCardResponse>("cardAnswered", resp),
+                            jsonOptions
+                        );
+
+                        break;
+                    }
+                case "choseProfile":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<ChoseProfileRequest>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var ok = serverState.TryApplyProfileToPlayer(
+                            env.Data.IdSalon,
+                            env.Data.IdTeam,
+                            env.Data.UserInfo,
+                            env.Data.CardsChosen,
+                            out var game,
+                            out var error
+                        );
+
+                        if (!ok)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", error ?? "unknown"), jsonOptions);
+                            break;
+                        }
+
+                        var resp = new ChoseProfileResponse
+                        {
+                            IdSalon = env.Data.IdSalon,
+                            IdTeam = env.Data.IdTeam,
+                            Game = game
+                        };
+
+                        var teamUserIds = serverState.GetTeamUserIds(env.Data.IdSalon, env.Data.IdTeam);
+
+                        await SendToUserIdsAsync(
+                            connections,
+                            teamUserIds,
+                            new Envelope<ChoseProfileResponse>("playerProfileCardsChosen", resp),
+                            jsonOptions
+                        );
+
+                        break;
+                    }
+                case "sendNotif":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<SendNotificationRequest>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var ok = serverState.TryAddNotificationToBigSalon(env.Data.IdSalon, env.Data.Notification, out var big, out var error);
+                        if (!ok)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", error ?? "unknown"), jsonOptions);
+                            break;
+                        }
+
+                        var recipients = serverState.GetBigSalonAdminObserverUserIds(env.Data.IdSalon);
+
+                        await SendToUserIdsAsync(
+                            connections,
+                            recipients,
+                            new Envelope<BigSalonInfo>("notificationSent", big),
+                            jsonOptions
+                        );
+                        break;
+                    }
+
+                case "deleteNotif":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<DeleteNotificationRequest>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var ok = serverState.TryRemoveNotificationFromBigSalon(env.Data.IdSalon, env.Data.IdNotification, out var big, out var error);
+                        if (!ok)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", error ?? "unknown"), jsonOptions);
+                            break;
+                        }
+
+                        var recipients = serverState.GetBigSalonAdminObserverUserIds(env.Data.IdSalon);
+
+                        await SendToUserIdsAsync(
+                            connections,
+                            recipients,
+                            new Envelope<BigSalonInfo>("notificationDeleted", big),
+                            jsonOptions
+                        );
+                        break;
+                    }
+                case "validateCardAdmin":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<ValidateCardAdminRequest>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var ok = serverState.TryValidateCardAdmin(
+                            env.Data.IdSalon,
+                            env.Data.IdTeam,
+                            env.Data.CardId,
+                            env.Data.NewState,
+                            out var game,
+                            out var error
+                        );
+
+                        if (!ok)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", error ?? "unknown"), jsonOptions);
+                            break;
+                        }
+
+                        var resp = new ValidateCardAdminResponse
+                        {
+                            IdSalon = env.Data.IdSalon,
+                            IdTeam = env.Data.IdTeam,
+                            Game = game
+                        };
+
+                        var teamUserIds = serverState.GetTeamUserIds(env.Data.IdSalon, env.Data.IdTeam);
+
+                        await SendToUserIdsAsync(
+                            connections,
+                            teamUserIds,
+                            new Envelope<ValidateCardAdminResponse>("cardValidatedAdmin", resp),
+                            jsonOptions
+                        );
+                        break;
+                    }
+                case "submitBudget":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<SubmitBudgetRequest>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var ok = serverState.TryApplyBudgetToGame(
+                            env.Data.IdSalon,
+                            env.Data.IdTeam,
+                            env.Data.Budget,
+                            out var game,
+                            out var error
+                        );
+
+                        if (!ok)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", error ?? "unknown"), jsonOptions);
+                            break;
+                        }
+
+                        var teamUserIds = serverState.GetTeamUserIds(env.Data.IdSalon, env.Data.IdTeam);
+
+                        await SendToUserIdsAsync(
+                            connections,
+                            teamUserIds,
+                            new Envelope<BudgetSubmittedResponse>("budgetSubmitted", new BudgetSubmittedResponse
+                            {
+                                IdSalon = env.Data.IdSalon,
+                                IdTeam = env.Data.IdTeam,
+                                Game = game
+                            }),
+                            jsonOptions
+                        );
+                        break;
+                    }
+
+                case "submitCrisis":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<SubmitCrisisRequest>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var ok = serverState.TryApplyCrisisToGame(
+                            env.Data.IdSalon,
+                            env.Data.IdTeam,
+                            env.Data.Crisis,
+                            out var game,
+                            out var error
+                        );
+
+                        if (!ok)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", error ?? "unknown"), jsonOptions);
+                            break;
+                        }
+
+                        var teamUserIds = serverState.GetTeamUserIds(env.Data.IdSalon, env.Data.IdTeam);
+
+                        await SendToUserIdsAsync(
+                            connections,
+                            teamUserIds,
+                            new Envelope<CrisisSubmittedResponse>("crisisSubmitted", new CrisisSubmittedResponse
+                            {
+                                IdSalon = env.Data.IdSalon,
+                                IdTeam = env.Data.IdTeam,
+                                Game = game
+                            }),
                             jsonOptions
                         );
                         break;
