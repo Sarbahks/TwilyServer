@@ -80,7 +80,6 @@ app.Map("/ws", async ctx =>
                         var u = env.Data.UserInfo;
                         registeredUserId = u.Id;
 
-                        // Register this connection
                         connections.Register(new ClientConnection
                         {
                             UserId = u.Id,
@@ -88,12 +87,11 @@ app.Map("/ws", async ctx =>
                             Socket = socket
                         });
 
-                        // Ack back to this client
-                        await SendJsonAsync(socket, new Envelope<ServerUserData>("connectedAck", env.Data), jsonOptions);
-
-                        logger.LogInformation("Registered user {Id} {Name}", u.Id, u.Name);
+                        // Optionally ACK
+                        await SendJsonAsync(socket, new Envelope<string>("connectedAck", "ok"), jsonOptions);
                         break;
                     }
+
                 case "createBigSalon":
                     {
                         var env = JsonSerializer.Deserialize<Envelope<BigSalonInfo>>(text, jsonOptions);
@@ -1010,4 +1008,16 @@ public sealed class WsMessageHandler
 
         }
     }
+
+    // In your ASP.NET Core handler or custom server loop:
+
+    
+
+    private static async Task CloseReplaced(ClientConnection prev)
+    {
+        try { await prev.Socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "replaced", CancellationToken.None); }
+        catch { }
+        try { prev.Socket.Dispose(); } catch { }
+    }
+
 }
