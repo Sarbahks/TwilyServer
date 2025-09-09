@@ -92,7 +92,7 @@ public sealed class ServerState
 
                 // check if same Id already exists
                 if (salon.UserInBig.Any(u => u.Id == join.UserInfo.Id))
-                    return false; // already joined
+                    return true; // already joined
 
                 salon.UserInBig.Add(join.UserInfo);
                 return true;
@@ -207,7 +207,7 @@ public sealed class ServerState
 
             // no duplicates by Id
             if (team.UsersInSalon.Any(u => u.Id == req.UserInfo.Id))
-                return false;
+                return true;
 
             team.UsersInSalon.Add(req.UserInfo);
             return true;
@@ -513,6 +513,33 @@ public sealed class ServerState
         return game;
     }
 
+    // Optional: if you later want server-side verification of player membership
+    private static bool IsPlayerInGame(GameStateData? g, int playerId)
+    {
+        if (g?.Players == null) return false;
+        foreach (var p in g.Players)
+        {
+            // adapt to your real model: p.userInfo.Id or p.Id, etc.
+            if(p.userInfo == null)
+                continue;
+            var uid = p.userInfo?.Id;
+
+            if (uid == playerId) return true;
+        }
+        return false;
+    }
+
+    // Optional: define when a game is "started"
+    public bool GameHasStarted(GameStateData? g)
+    {
+        if (g == null) return false;
+        // Prefer the field that is authoritative in your model
+        if (g.Active) return true;
+        // Fallbacks if needed:
+        if (g.CurrentArea > 0) return true;
+
+        return false;
+    }
 
     // get team user ids (to notify only that team)
     public HashSet<int> GetTeamUserIds(string salonId, string teamId)
@@ -755,6 +782,65 @@ public sealed class ServerState
 
             // Apply admin validation
             card.ProEvaluationResult = newState;
+
+            // Optional misc bookkeeping
+            game.TimeLastTurn = DateTime.UtcNow;
+
+            return true;
+        }
+    }
+
+    public bool TryValidateCardAI(
+    string salonId,
+    string teamId,
+    int cardId,
+    EvaluationResult newState,
+    out GameStateData game,
+    out string error)
+    {
+        game = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(salonId) || string.IsNullOrWhiteSpace(teamId))
+        {
+            error = "invalid-ids";
+            return false;
+        }
+        if (cardId <= 0)
+        {
+            error = "invalid-card-id";
+            return false;
+        }
+
+        if (!TryGetTeam(salonId, teamId, out var big, out var team))
+        {
+            error = "not-found";
+            return false;
+        }
+
+        lock (big)
+        {
+            game = team.GameState;
+            if (game == null)
+            {
+                error = "no-game";
+                return false;
+            }
+            if (game.Board == null || game.Board.Count == 0)
+            {
+                error = "no-board";
+                return false;
+            }
+
+            var card = game.Board.FirstOrDefault(c => c != null && c.Id == cardId);
+            if (card == null)
+            {
+                error = "card-not-found";
+                return false;
+            }
+
+            // Apply ai validation
+            card.AutoEvaluationResult = newState;
 
             // Optional misc bookkeeping
             game.TimeLastTurn = DateTime.UtcNow;

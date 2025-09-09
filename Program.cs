@@ -306,6 +306,59 @@ app.Map("/ws", async ctx =>
 
                         break;
                     }
+                case "askIfGameStarted":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<AskIfGameStartedRequest>>(text, jsonOptions);
+                        if (env?.Data == null ||
+                            string.IsNullOrWhiteSpace(env.Data.BigSalonId) ||
+                            string.IsNullOrWhiteSpace(env.Data.TeamId))
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var req = env.Data;
+
+                        // Find team using your helper
+                        if (!serverState.TryGetTeam(req.BigSalonId, req.TeamId, out var big, out var team))
+                        {
+                            var notFound = new AskIfGameStartedResponse
+                            {
+                                TeamId = req.TeamId,
+                                IsPlayer = req.IsPlayer,
+                                IsPlayerOnTheteam = false,
+                                HaveGameStarted = false,
+                                GameData = null
+                            };
+                            await SendJsonAsync(socket,
+                                new Envelope<AskIfGameStartedResponse>("askIfGameStartedResponse", notFound),
+                                jsonOptions);
+                            break;
+                        }
+
+                        var game = team.GameState; // may be null
+                        bool haveGameStarted = serverState.GameHasStarted(game);
+
+                        // You said you will manage existence of the player yourself.
+                        // If you decide to make it authoritative on the server, replace the next line with:
+                        // var isPlayerOnTheTeam = IsPlayerInGame(game, req.IdPlayer);
+                        var isPlayerOnTheTeam = req.IsPlayerOnTheteam;
+
+                        var resp = new AskIfGameStartedResponse
+                        {
+                            TeamId = req.TeamId,
+                            IsPlayer = req.IsPlayer,
+                            IsPlayerOnTheteam = isPlayerOnTheTeam,
+                            HaveGameStarted = haveGameStarted,
+                            GameData = game // send snapshot so client can sync if needed
+                        };
+
+                        await SendJsonAsync(socket,
+                            new Envelope<AskIfGameStartedResponse>("askIfGameStartedResponse", resp),
+                            jsonOptions);
+
+                        break;
+                    }
 
                 case "leaveTeam":
                     {
@@ -445,8 +498,12 @@ app.Map("/ws", async ctx =>
                         {
                             Game = gameInit,
                             SalonId = env.Data.SalonId,
-                            TeamId = env.Data.SalonId
+                            TeamId = env.Data.TeamId
                         };
+
+                        //initilize new game and add the players data here
+
+                      //  TwilyData data = await InitializeNewGameData(gameInit, env.Data.SalonId);
 
                         await SendToUserIdsAsync(
                             connections,
@@ -596,6 +653,8 @@ app.Map("/ws", async ctx =>
 
                         var teamUserIds = serverState.GetTeamUserIds(env.Data.IdSalon, env.Data.IdTeam);
 
+                       // await Helpers.PlayerRespondCard(game, env.Data.IdTeam, env.Data.CardAnsewerd);
+
                         await SendToUserIdsAsync(
                             connections,
                             teamUserIds,
@@ -741,6 +800,47 @@ app.Map("/ws", async ctx =>
                         );
                         break;
                     }
+                case "validateCardIA":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<ValidateCardAdminRequest>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+
+                        var ok = serverState.TryValidateCardAI(
+                            env.Data.IdSalon,
+                            env.Data.IdTeam,
+                            env.Data.CardId,
+                            env.Data.NewState,
+                            out var game,
+                            out var error
+                        );
+
+                        if (!ok)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", error ?? "unknown"), jsonOptions);
+                            break;
+                        }
+
+                        var resp = new ValidateCardIAResponse
+                        {
+                            IdSalon = env.Data.IdSalon,
+                            IdTeam = env.Data.IdTeam,
+                            Game = game
+                        };
+
+                        var teamUserIds = serverState.GetTeamUserIds(env.Data.IdSalon, env.Data.IdTeam);
+
+                        await SendToUserIdsAsync(
+                            connections,
+                            teamUserIds,
+                            new Envelope<ValidateCardIAResponse>("cardValidatedIA", resp),
+                            jsonOptions
+                        );
+                        break;
+                    }
                 case "submitBudget":
                     {
                         var env = JsonSerializer.Deserialize<Envelope<SubmitBudgetRequest>>(text, jsonOptions);
@@ -877,6 +977,20 @@ app.Map("/ws", async ctx =>
                             }),
                             jsonOptions
                         );
+                        break;
+                    }
+                case "getStatistics":
+                    {
+                        var env = JsonSerializer.Deserialize<Envelope<string>>(text, jsonOptions);
+                        if (env?.Data == null)
+                        {
+                            await SendJsonAsync(socket, new Envelope<string>("error", "missing-data"), jsonOptions);
+                            break;
+                        }
+                            TwilyData data = await Helpers.LoadTwilyDataAsync();
+                            await SendJsonAsync(socket, new Envelope<TwilyData>("recievedStatd", data));
+
+                           
                         break;
                     }
 
