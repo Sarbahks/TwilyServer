@@ -346,7 +346,7 @@ public sealed class ServerState
         return gameState;
     }
 
-    private static readonly JsonSerializerOptions Options = new JsonSerializerOptions
+    public static readonly JsonSerializerOptions Options = new JsonSerializerOptions
     {
         PropertyNameCaseInsensitive = true,
         AllowTrailingCommas = true,
@@ -357,43 +357,6 @@ public sealed class ServerState
     }
     };
 
-    public static List<CardData> GetCardsFromJson()
-    {
-        string cardsPath = Path.Combine("Resources", "cards.json");
-        string json = File.ReadAllText(cardsPath);
-        return JsonSerializer.Deserialize<List<CardData>>(json, Options);
-    }
-
-    public static GameRulesData GetRulesFromJson()
-    {
-        string rulesPath = Path.Combine("Resources", "rules.json");
-        string json = File.ReadAllText(rulesPath);
-        return JsonSerializer.Deserialize<GameRulesData>(json, Options);
-    }
-
-    public static string GetLinkFromText()
-    {
-        string linkPath = Path.Combine("Resources", "link.txt");
-        if (!File.Exists(linkPath))
-            throw new FileNotFoundException("Link file not found.", linkPath);
-
-        // Read all lines
-        var links = File.ReadAllLines(linkPath).ToList();
-
-        if (links.Count == 0)
-            return null; // no more links available
-
-        // Take first link
-        string link = links[0];
-
-        // Remove it from list
-        links.RemoveAt(0);
-
-        // Write remaining back to file
-        File.WriteAllLines(linkPath, links);
-
-        return link;
-    }
 
     public bool TryReadyPlayer(StartGameRequest req, out int readyCount, out List<int> readyIds)
     {

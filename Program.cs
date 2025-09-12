@@ -11,6 +11,11 @@ var builder = WebApplication.CreateBuilder(args);
 List<BigSalonInfo> actualBigSalons = new List<BigSalonInfo>();
 builder.Services.AddSingleton<ServerState>();
 
+// after builder is created, before app = builder.Build();
+Helpers.ConfigurePaths(null, builder.Environment.ContentRootPath);
+
+
+
 
 // DI: track connections
 builder.Services.AddSingleton<ConnectionRegistry>();
@@ -210,6 +215,53 @@ app.Map("/ws", async ctx =>
 
 
                         await BroadcastBigSalonsAsync(connections, serverState, jsonOptions);
+                        break;
+                    }
+                case "askAdminData":
+                    {
+
+                        var sal = JsonSerializer.Deserialize<Envelope<string>>(text, jsonOptions);
+
+                        if(sal != null)
+                        {
+                            BigSalonInfo salon;
+                            serverState.TryGetBigSalon(sal.Data, out salon);
+
+                            var resp = new AskAdminDataResponse
+                            {
+                                Notifications = new List<NotificationTwily>(),
+                                GamesInSalon = new List<ResumeGameAdmin>(),
+                                BigSalonId = sal.Data
+                            };
+                            if(salon != null)
+                            {
+                                foreach (var team in salon.Salons)
+                                {
+                                    if (team != null && team.GameState != null)
+                                    {
+                                        var gam = new ResumeGameAdmin
+                                        {
+                                            GameState = team.GameState,
+                                            IdSalon = team.Id,
+                                            NameSalon = team.Name
+
+                                        };
+                                        resp.GamesInSalon.Add(gam);
+                                    }
+                                }
+
+                                foreach (var noti in salon.Notifications)
+                                {
+                                    resp.Notifications.Add(noti);
+                                }
+
+                                    await SendJsonAsync(socket, new Envelope<AskAdminDataResponse>("getAdminDatas", resp), jsonOptions);
+                            }
+
+                    
+                        }
+                       
+
                         break;
                     }
                 case "createTeam":
@@ -503,7 +555,7 @@ app.Map("/ws", async ctx =>
 
                         //initilize new game and add the players data here
 
-                      //  TwilyData data = await InitializeNewGameData(gameInit, env.Data.SalonId);
+                       TwilyData data = await InitializeNewGameData(gameInit, env.Data.SalonId);
 
                         await SendToUserIdsAsync(
                             connections,
@@ -653,7 +705,11 @@ app.Map("/ws", async ctx =>
 
                         var teamUserIds = serverState.GetTeamUserIds(env.Data.IdSalon, env.Data.IdTeam);
 
-                       // await Helpers.PlayerRespondCard(game, env.Data.IdTeam, env.Data.CardAnsewerd);
+                        if (game != null && !string.IsNullOrWhiteSpace(env.Data?.IdTeam) && env.Data?.CardAnsewerd != null)
+                        {
+                            await Helpers.PlayerRespondCard(game, env.Data.IdTeam, env.Data.CardAnsewerd);
+                        }
+
 
                         await SendToUserIdsAsync(
                             connections,

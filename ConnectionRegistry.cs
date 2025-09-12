@@ -13,37 +13,40 @@ public sealed class ClientConnection
 
 public sealed class ConnectionRegistry
 {
-    // Single active connection per user
+    // userId -> active connection
     private readonly ConcurrentDictionary<int, ClientConnection> _activeByUser = new();
-    // Reverse map to guard cleanup on late closes
+    // socket -> userId (reverse map)
     private readonly ConcurrentDictionary<WebSocket, int> _userIdBySocket = new();
 
-    /// <summary>Register/replace the active connection for a user. Closes any previous socket safely.</summary>
+    // Register or replace the active connection for a user
     public void Register(ClientConnection conn)
     {
         var userId = conn.UserId;
 
-        // Put reverse map first (so IsCurrentSocket works during races)
+        // Update reverse map first so IsCurrent and TryGetUserId work during races
         _userIdBySocket[conn.Socket] = userId;
 
-        // Replace old connection if present
         if (_activeByUser.TryGetValue(userId, out var prev) && !ReferenceEquals(prev.Socket, conn.Socket))
         {
-            _activeByUser[userId] = conn; // replace with new
-            SafeClose(prev.Socket, WebSocketCloseStatus.PolicyViolation, "replaced");
+            // Replace with new connection
+            _activeByUser[userId] = conn;
+
+            // Remove reverse map for old socket and close it
             _userIdBySocket.TryRemove(prev.Socket, out _);
+            SafeClose(prev.Socket, WebSocketCloseStatus.PolicyViolation, "replaced");
         }
         else
         {
+            // First time or same instance
             _activeByUser[userId] = conn;
         }
     }
 
-    /// <summary>Snapshot of all active connections.</summary>
+    // Snapshot of all active connections
     public IReadOnlyCollection<ClientConnection> All()
         => _activeByUser.Values.ToList();
 
-    /// <summary>Unregister by user id, but only if this user still maps to the same socket (race-safe).</summary>
+    // Unregister by userId
     public void UnregisterByUserId(int userId)
     {
         if (_activeByUser.TryRemove(userId, out var conn))
@@ -52,12 +55,11 @@ public sealed class ConnectionRegistry
         }
     }
 
-    /// <summary>Unregister by socket, but only if that socket is still the current one for the mapped user.</summary>
+    // Unregister by socket, but only if that socket is still current for the user
     public void UnregisterBySocket(WebSocket socket)
     {
         if (_userIdBySocket.TryGetValue(socket, out var userId))
         {
-            // Only remove if the active mapping still points to this socket
             if (_activeByUser.TryGetValue(userId, out var current) && ReferenceEquals(current.Socket, socket))
             {
                 _activeByUser.TryRemove(userId, out _);
@@ -66,7 +68,24 @@ public sealed class ConnectionRegistry
         }
     }
 
-    /// <summary>Try to send a JSON envelope to a specific user if connected.</summary>
+    // Resolve sender userId from socket
+    public bool TryGetUserId(WebSocket socket, out int userId)
+        => _userIdBySocket.TryGetValue(socket, out userId);
+
+    // Check if a socket is still the active one for its user
+    public bool IsCurrent(WebSocket socket)
+    {
+        if (!_userIdBySocket.TryGetValue(socket, out var userId)) return false;
+        return _activeByUser.TryGetValue(userId, out var curr) && ReferenceEquals(curr.Socket, socket);
+    }
+
+    // Is this user currently connected
+    public bool IsUserConnected(int userId) => _activeByUser.ContainsKey(userId);
+
+    // Optional: get a snapshot of active userIds (useful for diagnostics)
+    public IReadOnlyCollection<int> ActiveUserIds() => _activeByUser.Keys.ToList();
+
+    // Send to a specific user if connected
     public async Task<bool> TrySendToUserAsync<T>(int userId, T payload, JsonSerializerOptions jsonOptions, CancellationToken ct = default)
     {
         if (!_activeByUser.TryGetValue(userId, out var conn))
@@ -84,16 +103,15 @@ public sealed class ConnectionRegistry
         }
         catch
         {
-            // If send fails, treat as dead and unregister-by-socket (race-safe)
+            // Treat as dead, unregister this socket safely
             UnregisterBySocket(ws);
             return false;
         }
     }
 
-    /// <summary>Broadcast helper: sends to a set of user ids.</summary>
+    // Broadcast to a set of userIds
     public async Task BroadcastAsync<T>(IEnumerable<int> userIds, T payload, JsonSerializerOptions jsonOptions, CancellationToken ct = default)
     {
-        // Iterate ids (not All()) so you don’t N-scan the whole registry
         foreach (var uid in userIds)
             await TrySendToUserAsync(uid, payload, jsonOptions, ct);
     }

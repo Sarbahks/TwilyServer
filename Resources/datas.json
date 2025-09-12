@@ -1,7 +1,238 @@
 {
-    "PersonnalDatas": [],
-    "GameDatas": [],
-    "GameStarted": 0,
-    "GameCompleted": 0,
-    "CardPlayed": 0
+  "PersonnalDatas": [
+    {
+      "IdPlayer": 1,
+      "Name": "David",
+      "CardPlays": 1,
+      "PointTotalEarned": 0,
+      "GamePlayed": 4
+    },
+    {
+      "IdPlayer": 4,
+      "Name": "Steph",
+      "CardPlays": 2,
+      "PointTotalEarned": 10,
+      "GamePlayed": 4
+    },
+    {
+      "IdPlayer": 2,
+      "Name": "Nora",
+      "CardPlays": 2,
+      "PointTotalEarned": 10,
+      "GamePlayed": 4
+    },
+    {
+      "IdPlayer": 3,
+      "Name": "Nath",
+      "CardPlays": 1,
+      "PointTotalEarned": 0,
+      "GamePlayed": 4
+    }
+  ],
+  "GameDatas": [
+    {
+      "TeamID": "244164c7-91e1-4651-90b6-babb1a6025a3",
+      "CardsPlayed": 0,
+      "PlayerDatas": [
+        {
+          "Name": "David",
+          "PlayerId": 1,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Steph",
+          "PlayerId": 4,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Nora",
+          "PlayerId": 2,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Nath",
+          "PlayerId": 3,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        }
+      ],
+      "TotalScore": 0,
+      "TotalCards": 121,
+      "Completed": false
+    },
+    {
+      "TeamID": "78d1ec5e-11e7-4314-958c-d4dabc9bd09c",
+      "CardsPlayed": 5,
+      "PlayerDatas": [
+        {
+          "Name": "Steph",
+          "PlayerId": 4,
+          "CardsPlayed": 2,
+          "Score": 10,
+          "RoleInGame": "RESPOQUAL"
+        },
+        {
+          "Name": "Nora",
+          "PlayerId": 2,
+          "CardsPlayed": 1,
+          "Score": 0,
+          "RoleInGame": "RESPODATA"
+        },
+        {
+          "Name": "Nath",
+          "PlayerId": 3,
+          "CardsPlayed": 1,
+          "Score": 0,
+          "RoleInGame": "RESPOFORM"
+        },
+        {
+          "Name": "David",
+          "PlayerId": 1,
+          "CardsPlayed": 1,
+          "Score": 10,
+          "RoleInGame": "RESPOCLI"
+        }
+      ],
+      "TotalScore": 20,
+      "TotalCards": 5,
+      "Completed": false
+    },
+    {
+      "TeamID": "b9d4d7cc-1b13-4df0-a633-81bb25b8ae3f",
+      "CardsPlayed": 0,
+      "PlayerDatas": [
+        {
+          "Name": "David",
+          "PlayerId": 1,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Nora",
+          "PlayerId": 2,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Nath",
+          "PlayerId": 3,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Steph",
+          "PlayerId": 4,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        }
+      ],
+      "TotalScore": 0,
+      "TotalCards": 121,
+      "Completed": false
+    },
+    {
+      "TeamID": "60490e19-e5ae-4486-95a0-0d123d01fd6b",
+      "CardsPlayed": 1,
+      "PlayerDatas": [
+        {
+          "Name": "Nora",
+          "PlayerId": 2,
+          "CardsPlayed": 1,
+          "Score": 0,
+          "RoleInGame": "RESPODATA"
+        }
+      ],
+      "TotalScore": 0,
+      "TotalCards": 1,
+      "Completed": false
+    },
+    {
+      "TeamID": "facd96cf-cebd-4be3-a271-89573f2e77ab",
+      "CardsPlayed": 0,
+      "PlayerDatas": [
+        {
+          "Name": "David",
+          "PlayerId": 1,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Nora",
+          "PlayerId": 2,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Nath",
+          "PlayerId": 3,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Steph",
+          "PlayerId": 4,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        }
+      ],
+      "TotalScore": 0,
+      "TotalCards": 120,
+      "Completed": false
+    },
+    {
+      "TeamID": "5446bc93-fd88-4b93-a5f7-3ce72afabae4",
+      "CardsPlayed": 0,
+      "PlayerDatas": [
+        {
+          "Name": "Nora",
+          "PlayerId": 2,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Nath",
+          "PlayerId": 3,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "David",
+          "PlayerId": 1,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        },
+        {
+          "Name": "Steph",
+          "PlayerId": 4,
+          "CardsPlayed": 0,
+          "Score": 0,
+          "RoleInGame": "NOROLE"
+        }
+      ],
+      "TotalScore": 0,
+      "TotalCards": 120,
+      "Completed": false
+    }
+  ],
+  "GameStarted": 4,
+  "GameCompleted": 0,
+  "CardPlayed": 6
 }
